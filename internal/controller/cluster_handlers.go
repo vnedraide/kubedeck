@@ -1,0 +1,281 @@
+package controller
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+)
+
+type ClusterProvider interface {
+	ListClusters(ctx context.Context) ([]Cluster, error)
+	GetNodeGroups(ctx context.Context, clusterID string) ([]NodeGroup, error)
+	ScaleNodeGroup(ctx context.Context, clusterID, groupID string, nodeCount int) error
+}
+
+type Cluster struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Provider string `json:"provider"`
+}
+
+type NodeGroup struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	NodeCount int    `json:"node_count"`
+}
+
+// TimeWeb provider
+type TimeWebProvider struct {
+	token   string
+	baseURL string
+	client  *http.Client
+}
+
+func NewTimeWebProvider() *TimeWebProvider {
+	return &TimeWebProvider{
+		token:   "eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjFrYnhacFJNQGJSI0tSbE1xS1lqIn0.eyJ1c2VyIjoiY2E0ODMzNiIsInR5cGUiOiJhcGlfa2V5IiwiYXBpX2tleV9pZCI6Ijk4ZDg4MDk5LTRhODItNDFlZS1hZjg5LWVlNjQ0NzM0ZmUyOCIsImlhdCI6MTc0OTMwMjMwNiwiZXhwIjoxNzUxODk0MzA1fQ.lRfEVM82b-Rg0DvAOjczH5FAq9DDGSTpIZYqO559TpyR2ZwUp8ZmRPBObl-QJW6Z9i-EXTQVcJ9MF8CDe0r8hIn_-07GNtSqIceUFt2TGMVWqOxC63zU0q-HMOlDkoeOigd2nYMBGKw56NsRWwwm-rfmNm_j9CaSNe4n1DDnHrFVfRyveldAAp4Um3v6Mzdf5Fuh2Lq2tpspeH-AVjnP8H7pLtUZFlrkAhjW_hVodo7Zf0shLY44MQxAbKxC0gBt_joEUsvxVw0JdpGWYiAKQl6KRCADlSLBFUpqtuLYD_3ZRMUq22YIYyTgQgXort1FXEyIioKIYTzMtyRZmIPkeOor7ve6O7Un2EgLx06l0OLBVVKcEtfZbt4g9kt_o_YUBS8IrXUOgheC-asSX4LTU70oGqCYmrB0l1E2vprYqjYRKWdubMUl6nHSjMaUn4mdOvXxIfkazw-I-eIN6Jc1Ztw2Vv8bSqZpiy0jruk10M81LJBZneobA97qTxEuBQr4",
+		baseURL: "https://api.timeweb.cloud/api/v1",
+		client:  &http.Client{},
+	}
+}
+
+func (t *TimeWebProvider) ListClusters(ctx context.Context) ([]Cluster, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/k8s/clusters", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+t.token)
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Clusters []Cluster `json:"clusters"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	for i := range result.Clusters {
+		result.Clusters[i].Provider = "timeweb"
+	}
+
+	return result.Clusters, nil
+}
+
+func (t *TimeWebProvider) GetNodeGroups(ctx context.Context, clusterID string) ([]NodeGroup, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/k8s/clusters/%s/groups", t.baseURL, clusterID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+t.token)
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Groups []NodeGroup `json:"groups"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Groups, nil
+}
+
+func (t *TimeWebProvider) ScaleNodeGroup(ctx context.Context, clusterID, groupID string, nodeCount int) error {
+	data, _ := json.Marshal(map[string]int{"count": nodeCount})
+
+	method := "POST"
+	if nodeCount < 0 {
+		method = "DELETE"
+		nodeCount = -nodeCount
+		data, _ = json.Marshal(map[string]int{"count": nodeCount})
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method,
+		fmt.Sprintf("%s/k8s/clusters/%s/groups/%s/nodes", t.baseURL, clusterID, groupID),
+		bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+t.token)
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("scale request failed: %s", string(body))
+	}
+
+	return nil
+}
+
+// Yandex Cloud provider
+type YandexCloudProvider struct {
+	token    string
+	folderID string
+	baseURL  string
+	client   *http.Client
+}
+
+func NewYandexCloudProvider() *YandexCloudProvider {
+	return &YandexCloudProvider{
+		token:    os.Getenv("YANDEX_CLOUD_TOKEN"),
+		folderID: os.Getenv("YANDEX_CLOUD_FOLDER_ID"),
+		baseURL:  "https://mks.api.cloud.yandex.net/managed-kubernetes/v1",
+		client:   &http.Client{},
+	}
+}
+
+func (y *YandexCloudProvider) ListClusters(ctx context.Context) ([]Cluster, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf("%s/clusters?folderId=%s", y.baseURL, y.folderID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+y.token)
+
+	resp, err := y.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Clusters []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"clusters"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	clusters := make([]Cluster, len(result.Clusters))
+	for i, c := range result.Clusters {
+		clusters[i] = Cluster{
+			ID:       c.ID,
+			Name:     c.Name,
+			Status:   c.Status,
+			Provider: "yandex",
+		}
+	}
+
+	return clusters, nil
+}
+
+func (y *YandexCloudProvider) GetNodeGroups(ctx context.Context, clusterID string) ([]NodeGroup, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		fmt.Sprintf("%s/nodeGroups?clusterId=%s", y.baseURL, clusterID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+y.token)
+
+	resp, err := y.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		NodeGroups []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			ScalePolicy struct {
+				FixedScale struct {
+					Size int `json:"size"`
+				} `json:"fixedScale"`
+			} `json:"scalePolicy"`
+		} `json:"nodeGroups"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	groups := make([]NodeGroup, len(result.NodeGroups))
+	for i, g := range result.NodeGroups {
+		groups[i] = NodeGroup{
+			ID:        g.ID,
+			Name:      g.Name,
+			NodeCount: g.ScalePolicy.FixedScale.Size,
+		}
+	}
+
+	return groups, nil
+}
+
+func (y *YandexCloudProvider) ScaleNodeGroup(ctx context.Context, clusterID, groupID string, nodeCount int) error {
+	data, _ := json.Marshal(map[string]interface{}{
+		"updateMask": "scalePolicy.fixedScale.size",
+		"scalePolicy": map[string]interface{}{
+			"fixedScale": map[string]int{
+				"size": nodeCount,
+			},
+		},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH",
+		fmt.Sprintf("%s/nodeGroups/%s", y.baseURL, groupID),
+		bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+y.token)
+
+	resp, err := y.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("scale request failed: %s", string(body))
+	}
+
+	return nil
+}
+
+// Factory
+func NewClusterProvider(providerType string) (ClusterProvider, error) {
+	switch providerType {
+	case "timeweb":
+		return NewTimeWebProvider(), nil
+	case "yandex":
+		return NewYandexCloudProvider(), nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", providerType)
+	}
+}

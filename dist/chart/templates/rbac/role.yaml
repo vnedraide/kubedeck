@@ -1,0 +1,30 @@
+{{- if .Values.rbac.enable }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: kubedeck-manager-role
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - ctrl.nikcorp.ru
+  resources:
+  - kubedecks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ctrl.nikcorp.ru
+  resources:
+  - kubedecks/status
+  verbs:
+  - get
+  - patch
+  - update
+{{- end -}}
