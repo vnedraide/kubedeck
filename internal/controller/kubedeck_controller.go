@@ -188,8 +188,8 @@ func (r *KubedeckReconciler) startWebServer() {
 	mux.HandleFunc("/configmaps/delete", r.HandleDeleteConfigMap)
 
 	// Deployments CRUD
-	mux.HandleFunc("/deployments/create", r.HandleCreateDeployment)
-	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment)
+	mux.HandleFunc("/deployments/create", r.HandleCreateDeployment) //ok+
+	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment) //ok+
 	mux.HandleFunc("/deployments/delete", r.HandleDeleteDeployment)
 
 	// Новые обработчики для метрик

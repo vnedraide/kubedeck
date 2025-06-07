@@ -61,16 +61,19 @@ type TimeWebClusterResponse struct {
 	} `json:"clusters"`
 }
 
+// TimeWeb API response structure для групп нод
 type TimeWebNodeGroupResponse struct {
 	ResponseID string `json:"response_id"`
 	Meta       struct {
 		Total int `json:"total"`
 	} `json:"meta"`
-	Groups []struct {
+	NodeGroups []struct {
 		ID        int    `json:"id"`
 		Name      string `json:"name"`
+		CreatedAt string `json:"created_at"`
+		PresetID  int    `json:"preset_id"`
 		NodeCount int    `json:"node_count"`
-	} `json:"groups"`
+	} `json:"node_groups"`
 }
 
 func NewTimeWebProvider() *TimeWebProvider {
@@ -136,8 +139,8 @@ func (t *TimeWebProvider) GetNodeGroups(ctx context.Context, clusterID string) (
 		return nil, err
 	}
 
-	groups := make([]NodeGroup, len(result.Groups))
-	for i, g := range result.Groups {
+	groups := make([]NodeGroup, len(result.NodeGroups))
+	for i, g := range result.NodeGroups {
 		groups[i] = NodeGroup{
 			ID:        strconv.Itoa(g.ID),
 			Name:      g.Name,

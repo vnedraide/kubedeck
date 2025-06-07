@@ -25,8 +25,11 @@ const (
 // PodResourceInfo represents resource information for a pod
 type PodResourceInfo struct {
 	Name          string  `json:"name"`
-	CPU           int     `json:"cpu"`
-	Memory        int     `json:"memory"`
+	ResourceName  string  `json:"resourceName,omitempty"`
+	CPURequest    int     `json:"cpuRequest"`
+	MemoryRequest int     `json:"memoryRequest"`
+	CPULimit      int     `json:"cpuLimit"`
+	MemoryLimit   int     `json:"memoryLimit"`
 	CPUUsage      string  `json:"cpuUsage,omitempty"`
 	MemoryUsage   string  `json:"memoryUsage,omitempty"`
 	CPUPercentage float64 `json:"cpuPercentage,omitempty"`
@@ -130,10 +133,16 @@ func (r *KubedeckReconciler) collectPodResourceData(ctx context.Context) (map[st
 			continue
 		}
 
-		// Calculate total CPU and memory limits
-		var totalCPULimit, totalMemLimit resource.Quantity
+		// Calculate total CPU and memory requests and limits
+		var totalCPURequest, totalMemRequest, totalCPULimit, totalMemLimit resource.Quantity
 
 		for _, container := range pod.Spec.Containers {
+			if cpu, ok := container.Resources.Requests[corev1.ResourceCPU]; ok {
+				totalCPURequest.Add(cpu)
+			}
+			if mem, ok := container.Resources.Requests[corev1.ResourceMemory]; ok {
+				totalMemRequest.Add(mem)
+			}
 			if cpu, ok := container.Resources.Limits[corev1.ResourceCPU]; ok {
 				totalCPULimit.Add(cpu)
 			}
@@ -143,14 +152,26 @@ func (r *KubedeckReconciler) collectPodResourceData(ctx context.Context) (map[st
 		}
 
 		// Convert CPU millicores and memory to reasonable units
-		cpuMillicores := totalCPULimit.MilliValue()
-		memoryMi := totalMemLimit.Value() / (1024 * 1024) // Convert to Mi
+		cpuRequestMillicores := totalCPURequest.MilliValue()
+		memoryRequestMi := totalMemRequest.Value() / (1024 * 1024) // Convert to Mi
+		cpuLimitMillicores := totalCPULimit.MilliValue()
+		memoryLimitMi := totalMemLimit.Value() / (1024 * 1024) // Convert to Mi
+
+		// Get resource name (typically deployment, statefulset, etc)
+		resourceName := ""
+		for _, ownerRef := range pod.OwnerReferences {
+			resourceName = ownerRef.Name
+			break
+		}
 
 		// Create pod resource info
 		podInfo := PodResourceInfo{
-			Name:   pod.Name,
-			CPU:    int(cpuMillicores),
-			Memory: int(memoryMi),
+			Name:          pod.Name,
+			ResourceName:  resourceName,
+			CPURequest:    int(cpuRequestMillicores),
+			MemoryRequest: int(memoryRequestMi),
+			CPULimit:      int(cpuLimitMillicores),
+			MemoryLimit:   int(memoryLimitMi),
 		}
 
 		// Add usage data if available
@@ -278,60 +299,67 @@ func (r *KubedeckReconciler) getLLMResourceRecommendations(ctx context.Context, 
 func createLLMPrompt(podResourceData map[string][]PodResourceInfo) string {
 	sb := strings.Builder{}
 
-	sb.WriteString("Проанализируйте следующие данные об использовании ресурсов подов Kubernetes и предоставьте рекомендации по корректировке ресурсов. ")
-	sb.WriteString("Мне нужно, чтобы вы определили поды, которым выделено слишком много или слишком мало ресурсов, на основе их шаблонов использования. ")
-	sb.WriteString("Пожалуйста, ответьте ТОЛЬКО в следующем формате JSON, без какого-либо другого текста:\n\n")
+	sb.WriteString("Ой ты гой еси, добрый молодец! Зри на потребу подов Kubernetes и рассуди мудро о ресурсах их. ")
+	sb.WriteString("Укажи те поды, что али слишком мало, али слишком много ресурсов имеют. ")
+	sb.WriteString("Ответствуй ТОЛЬКО в таком JSON формате:\n\n")
 	sb.WriteString("```json\n")
 	sb.WriteString("{\n")
-	sb.WriteString("  \"message\": \"Ваш общий анализ и рекомендации здесь\",\n")
+	sb.WriteString("  \"message\": \"Суть твоего анализа\",\n")
 	sb.WriteString("  \"namespaces\": {\n")
-	sb.WriteString("    \"имя-пространства-имен\": [\n")
+	sb.WriteString("    \"имя-пространства\": [\n")
 	sb.WriteString("      {\n")
 	sb.WriteString("        \"name\": \"имя-пода\",\n")
-	sb.WriteString("        \"cpu\": 500,  // Рекомендуемый CPU в милликорах, или -1 если изменения не нужны\n")
-	sb.WriteString("        \"memory\": 128,  // Рекомендуемая память в Mi, или -1 если изменения не нужны\n")
-	sb.WriteString("        \"status\": \"warning\" или \"critical\"  // Уровень серьезности рекомендации\n")
+	sb.WriteString("        \"resourceName\": \"имя-ресурса\",\n")
+	sb.WriteString("        \"cpuRequest\": 300,  // CPU request в милликорах или -1 коли не нужно менять\n")
+	sb.WriteString("        \"memoryRequest\": 64,  // Memory request в Mi или -1 коли не нужно менять\n")
+	sb.WriteString("        \"cpuLimit\": 500,  // CPU limit в милликорах или -1 коли не нужно менять\n")
+	sb.WriteString("        \"memoryLimit\": 128,  // Memory limit в Mi или -1 коли не нужно менять\n")
+	sb.WriteString("        \"status\": \"warning\" или \"critical\"\n")
 	sb.WriteString("      }\n")
 	sb.WriteString("    ]\n")
 	sb.WriteString("  }\n")
 	sb.WriteString("}\n")
 	sb.WriteString("```\n\n")
 
-	sb.WriteString("В вашем анализе учитывайте следующие рекомендации:\n")
-	sb.WriteString("1. Если процент использования CPU постоянно ниже 30%, рассмотрите возможность рекомендации снижения лимитов CPU (status=warning).\n")
-	sb.WriteString("2. Если процент использования CPU постоянно выше 80%, рассмотрите возможность рекомендации увеличения лимитов CPU (status=critical).\n")
-	sb.WriteString("3. Если процент использования памяти постоянно ниже 40%, рассмотрите возможность рекомендации снижения лимитов памяти (status=warning).\n")
-	sb.WriteString("4. Если процент использования памяти постоянно выше 75%, рассмотрите возможность рекомендации увеличения лимитов памяти (status=critical).\n")
-	sb.WriteString("5. Если ресурс не требует корректировки, используйте -1 для этого значения ресурса.\n")
-	sb.WriteString("6. Включайте только те поды, которые нуждаются в корректировке хотя бы одного ресурса.\n")
-	sb.WriteString("7. Установите статус 'warning' для рекомендаций по уменьшению ресурсов или небольших проблем.\n")
-	sb.WriteString("8. Установите статус 'critical' для рекомендаций по увеличению ресурсов или серьезных проблем.\n\n")
+	sb.WriteString("Правила суждения таковы:\n")
+	sb.WriteString("1. CPU <30% - снизить надобно (warning)\n")
+	sb.WriteString("2. CPU >80% - повысить надобно (critical)\n")
+	sb.WriteString("3. Память <40% - снизить надобно (warning)\n")
+	sb.WriteString("4. Память >75% - повысить надобно (critical)\n")
+	sb.WriteString("5. Коли не нужно менять - ставь -1\n")
+	sb.WriteString("6. Токмо проблемные поды указывай\n\n")
+	sb.WriteString("7. Для каждого пода указывай как requests так и limits\n\n")
 
-	sb.WriteString("Вот текущие данные о ресурсах по пространствам имен:\n\n")
+	sb.WriteString("Вот данные о подах:\n\n")
 
 	// Add pod resource data to the prompt
 	for namespace, pods := range podResourceData {
-		sb.WriteString(fmt.Sprintf("Пространство имен: %s\n", namespace))
+		sb.WriteString(fmt.Sprintf("Пространство: %s\n", namespace))
 		for _, pod := range pods {
 			sb.WriteString(fmt.Sprintf("- Под: %s\n", pod.Name))
-			sb.WriteString(fmt.Sprintf("  Лимит CPU: %dm, ", pod.CPU))
+			if pod.ResourceName != "" {
+				sb.WriteString(fmt.Sprintf("  Ресурс: %s\n", pod.ResourceName))
+			}
+			sb.WriteString(fmt.Sprintf("  CPU Request: %dm, CPU Limit: %dm, ", pod.CPURequest, pod.CPULimit))
 			if pod.CPUUsage != "" {
-				sb.WriteString(fmt.Sprintf("Использование CPU: %s (%.1f%%)\n", pod.CPUUsage, pod.CPUPercentage))
+				sb.WriteString(fmt.Sprintf("Потребление: %s (%.1f%%)\n", pod.CPUUsage, pod.CPUPercentage))
 			} else {
-				sb.WriteString("Использование CPU: Неизвестно\n")
+				sb.WriteString("Потребление: неведомо\n")
 			}
 
-			sb.WriteString(fmt.Sprintf("  Лимит памяти: %dMi, ", pod.Memory))
+			sb.WriteString(fmt.Sprintf("  Memory Request: %dMi, Memory Limit: %dMi, ", pod.MemoryRequest, pod.MemoryLimit))
 			if pod.MemoryUsage != "" {
-				sb.WriteString(fmt.Sprintf("Использование памяти: %s (%.1f%%)\n", pod.MemoryUsage, pod.MemPercentage))
+				sb.WriteString(fmt.Sprintf("Потребление: %s (%.1f%%)\n", pod.MemoryUsage, pod.MemPercentage))
 			} else {
-				sb.WriteString("Использование памяти: Неизвестно\n")
+				sb.WriteString("Потребление: неведомо\n")
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("Верните ТОЛЬКО объект JSON, как указано выше, без маркировки markdown, объяснений или дополнительного текста до или после. Убедитесь, что ваш ответ является допустимым JSON, который можно разобрать напрямую. Ответ должен быть на русском языке.")
+	sb.WriteString("Укажи resourceName для каждого пода дабы ресайзинг ресурса возможен был.\n\n")
+	sb.WriteString("Для каждого пода нужно возвращать как requests так и limits, то есть как минимальные необходимые ресурсы, так и максимальные.\n\n")
+	sb.WriteString("Верни ТОКМО JSON без иных пояснений. Ответ должен быть на русском языке в стиле древних русов.")
 
 	return sb.String()
 }
