@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: registry.orion.nikcorp.ru/kubedeck
-  newTag: 0.1.12
+  newTag: 0.1.14

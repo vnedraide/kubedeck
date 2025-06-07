@@ -10,7 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	// "sigs.k8s.io/controller-runtime/pkg/client" // Уже должно быть в APIHandlers
 )
 
@@ -253,37 +255,49 @@ func (h *KubedeckReconciler) HandleCreateDeployment(w http.ResponseWriter, req *
 	h.writeJSONResponse(w, http.StatusCreated, deploy)
 }
 
-func (h *KubedeckReconciler) HandleUpdateDeployment(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	targetNamespace := req.URL.Query().Get("namespace")
-	deployName := req.URL.Query().Get("name")
-
-	if targetNamespace == "" || deployName == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing 'namespace' or 'name' query parameter for Deployment update", fmt.Errorf("namespace and name are required"))
-		return
+func (h *KubedeckReconciler) HandleUpdateDeployment(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Namespace string `json:"namespace"`
+		Resource  struct {
+			Name          string `json:"name"`
+			CPURequest    int    `json:"cpuRequest"`
+			MemoryRequest int    `json:"memoryRequest"`
+			CPULimit      int    `json:"cpuLimit"`
+			MemoryLimit   int    `json:"memoryLimit"`
+			Replicas      int32  `json:"replicas"`
+		} `json:"resource"`
 	}
 
-	var updatedDeploy appsv1.Deployment
-	if err := json.NewDecoder(req.Body).Decode(&updatedDeploy); err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON body for Deployment update", err)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON", err)
 		return
 	}
-	defer req.Body.Close()
+	defer r.Body.Close()
 
-	if updatedDeploy.ResourceVersion == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing 'metadata.resourceVersion' in Deployment update request", fmt.Errorf("resourceVersion is required"))
+	ctx := r.Context()
+	var deployment appsv1.Deployment
+	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &deployment); err != nil {
+		h.writeErrorResponse(w, http.StatusNotFound, "Deployment not found", err)
 		return
 	}
-	updatedDeploy.Namespace = targetNamespace
-	updatedDeploy.Name = deployName
-	// updatedDeploy.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("Deployment"))
+	if len(deployment.Spec.Template.Spec.Containers) > 0 {
+		container := &deployment.Spec.Template.Spec.Containers[0]
+		container.Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPURequest)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryRequest)),
+		}
+		container.Resources.Limits = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPULimit)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryLimit)),
+		}
+	}
+	deployment.Spec.Replicas = &payload.Resource.Replicas
 
-	webServerLog.Info("Attempting to update Deployment", "namespace", updatedDeploy.Namespace, "name", updatedDeploy.Name)
-	if err := h.Client.Update(ctx, &updatedDeploy); err != nil {
+	if err := h.Client.Update(ctx, &deployment); err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update Deployment", err)
 		return
 	}
-	h.writeJSONResponse(w, http.StatusOK, updatedDeploy)
+	h.writeJSONResponse(w, http.StatusOK, deployment)
 }
 
 func (h *KubedeckReconciler) HandleDeleteDeployment(w http.ResponseWriter, req *http.Request) {
@@ -490,35 +504,48 @@ func (h *KubedeckReconciler) HandleCreateDaemonSet(w http.ResponseWriter, req *h
 	h.writeJSONResponse(w, http.StatusCreated, obj)
 }
 
-func (h *KubedeckReconciler) HandleUpdateDaemonSet(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	ns := req.URL.Query().Get("namespace")
-	name := req.URL.Query().Get("name")
-	if ns == "" || name == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing 'namespace' or 'name'", fmt.Errorf("namespace and name required"))
+func (h *KubedeckReconciler) HandleUpdateDaemonSet(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Namespace string `json:"namespace"`
+		Resource  struct {
+			Name          string `json:"name"`
+			CPURequest    int    `json:"cpuRequest"`
+			MemoryRequest int    `json:"memoryRequest"`
+			CPULimit      int    `json:"cpuLimit"`
+			MemoryLimit   int    `json:"memoryLimit"`
+		} `json:"resource"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctx := r.Context()
+	var ds appsv1.DaemonSet
+	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &ds); err != nil {
+		h.writeErrorResponse(w, http.StatusNotFound, "DaemonSet not found", err)
 		return
 	}
 
-	var obj appsv1.DaemonSet
-	if err := json.NewDecoder(req.Body).Decode(&obj); err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON for DaemonSet update", err)
-		return
+	if len(ds.Spec.Template.Spec.Containers) > 0 {
+		container := &ds.Spec.Template.Spec.Containers[0]
+		container.Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPURequest)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryRequest)),
+		}
+		container.Resources.Limits = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPULimit)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryLimit)),
+		}
 	}
-	defer req.Body.Close()
 
-	if obj.ResourceVersion == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing resourceVersion", fmt.Errorf("resourceVersion required"))
-		return
-	}
-
-	obj.Namespace = ns
-	obj.Name = name
-
-	if err := h.Client.Update(ctx, &obj); err != nil {
+	if err := h.Client.Update(ctx, &ds); err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update DaemonSet", err)
 		return
 	}
-	h.writeJSONResponse(w, http.StatusOK, obj)
+	h.writeJSONResponse(w, http.StatusOK, ds)
 }
 
 func (h *KubedeckReconciler) HandleDeleteDaemonSet(w http.ResponseWriter, req *http.Request) {
@@ -570,35 +597,50 @@ func (h *KubedeckReconciler) HandleCreateStatefulSet(w http.ResponseWriter, req 
 	h.writeJSONResponse(w, http.StatusCreated, obj)
 }
 
-func (h *KubedeckReconciler) HandleUpdateStatefulSet(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	ns := req.URL.Query().Get("namespace")
-	name := req.URL.Query().Get("name")
-	if ns == "" || name == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing 'namespace' or 'name'", fmt.Errorf("namespace and name required"))
+func (h *KubedeckReconciler) HandleUpdateStatefulSet(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Namespace string `json:"namespace"`
+		Resource  struct {
+			Name          string `json:"name"`
+			CPURequest    int    `json:"cpuRequest"`
+			MemoryRequest int    `json:"memoryRequest"`
+			CPULimit      int    `json:"cpuLimit"`
+			MemoryLimit   int    `json:"memoryLimit"`
+			Replicas      int32  `json:"replicas"`
+		} `json:"resource"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctx := r.Context()
+	var sts appsv1.StatefulSet
+	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &sts); err != nil {
+		h.writeErrorResponse(w, http.StatusNotFound, "StatefulSet not found", err)
 		return
 	}
 
-	var obj appsv1.StatefulSet
-	if err := json.NewDecoder(req.Body).Decode(&obj); err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON for StatefulSet update", err)
-		return
+	if len(sts.Spec.Template.Spec.Containers) > 0 {
+		container := &sts.Spec.Template.Spec.Containers[0]
+		container.Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPURequest)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryRequest)),
+		}
+		container.Resources.Limits = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPULimit)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryLimit)),
+		}
 	}
-	defer req.Body.Close()
+	sts.Spec.Replicas = &payload.Resource.Replicas
 
-	if obj.ResourceVersion == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing resourceVersion", fmt.Errorf("resourceVersion required"))
-		return
-	}
-
-	obj.Namespace = ns
-	obj.Name = name
-
-	if err := h.Client.Update(ctx, &obj); err != nil {
+	if err := h.Client.Update(ctx, &sts); err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update StatefulSet", err)
 		return
 	}
-	h.writeJSONResponse(w, http.StatusOK, obj)
+	h.writeJSONResponse(w, http.StatusOK, sts)
 }
 
 func (h *KubedeckReconciler) HandleDeleteStatefulSet(w http.ResponseWriter, req *http.Request) {
@@ -1019,29 +1061,43 @@ func (h *KubedeckReconciler) HandleCreateReplicaSet(w http.ResponseWriter, req *
 	h.writeJSONResponse(w, http.StatusCreated, rs)
 }
 
-func (h *KubedeckReconciler) HandleUpdateReplicaSet(w http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	ns := req.URL.Query().Get("namespace")
-	name := req.URL.Query().Get("name")
-	if ns == "" || name == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing 'namespace' or 'name'", fmt.Errorf("namespace and name required"))
-		return
+func (h *KubedeckReconciler) HandleUpdateReplicaSet(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Namespace string `json:"namespace"`
+		Resource  struct {
+			Name          string `json:"name"`
+			CPURequest    int    `json:"cpuRequest"`
+			MemoryRequest int    `json:"memoryRequest"`
+			CPULimit      int    `json:"cpuLimit"`
+			MemoryLimit   int    `json:"memoryLimit"`
+			Replicas      int32  `json:"replicas"`
+		} `json:"resource"`
 	}
 
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctx := r.Context()
 	var rs appsv1.ReplicaSet
-	if err := json.NewDecoder(req.Body).Decode(&rs); err != nil {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON for ReplicaSet update", err)
+	if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &rs); err != nil {
+		h.writeErrorResponse(w, http.StatusNotFound, "ReplicaSet not found", err)
 		return
 	}
-	defer req.Body.Close()
-
-	if rs.ResourceVersion == "" {
-		h.writeErrorResponse(w, http.StatusBadRequest, "Missing resourceVersion", fmt.Errorf("resourceVersion required"))
-		return
+	if len(rs.Spec.Template.Spec.Containers) > 0 {
+		container := &rs.Spec.Template.Spec.Containers[0]
+		container.Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPURequest)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryRequest)),
+		}
+		container.Resources.Limits = corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPULimit)),
+			corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryLimit)),
+		}
 	}
-
-	rs.Namespace = ns
-	rs.Name = name
+	rs.Spec.Replicas = &payload.Resource.Replicas
 
 	if err := h.Client.Update(ctx, &rs); err != nil {
 		h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update ReplicaSet", err)

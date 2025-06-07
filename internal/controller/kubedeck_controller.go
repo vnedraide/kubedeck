@@ -22,6 +22,7 @@ type KubedeckReconciler struct {
 	// Cloud providers
 	timewebProvider     ClusterProvider
 	yandexCloudProvider ClusterProvider
+	TelegramBotSettings *TelegramBotSettings
 }
 
 // Separate logger for the web server
@@ -189,7 +190,7 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// Deployments CRUD
 	mux.HandleFunc("/deployments/create", r.HandleCreateDeployment) //ok+
-	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment) //ok+
+	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment) //ok+=============
 	mux.HandleFunc("/deployments/delete", r.HandleDeleteDeployment)
 
 	// Новые обработчики для метрик
@@ -203,12 +204,12 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// DaemonSets CRUD
 	mux.HandleFunc("/daemonsets/create", r.HandleCreateDaemonSet)
-	mux.HandleFunc("/daemonsets/update", r.HandleUpdateDaemonSet)
+	mux.HandleFunc("/daemonsets/update", r.HandleUpdateDaemonSet) //=========================
 	mux.HandleFunc("/daemonsets/delete", r.HandleDeleteDaemonSet)
 
 	// StatefulSet CRUD
 	mux.HandleFunc("/statefulsets/create", r.HandleCreateStatefulSet)
-	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet)
+	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet) //===================
 	mux.HandleFunc("/statefulsets/delete", r.HandleDeleteStatefulSet)
 
 	// PVC CRUD
@@ -237,7 +238,7 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// ReplicaSet CRUD
 	mux.HandleFunc("/replicasets/create", r.HandleCreateReplicaSet)
-	mux.HandleFunc("/replicasets/update", r.HandleUpdateReplicaSet)
+	mux.HandleFunc("/replicasets/update", r.HandleUpdateReplicaSet) //===================
 	mux.HandleFunc("/replicasets/delete", r.HandleDeleteReplicaSet)
 
 	// Namespaces CRUD (пример для кластерного)
@@ -247,6 +248,8 @@ func (r *KubedeckReconciler) startWebServer() {
 	mux.HandleFunc("/cloud/clusters", r.handleCloudClustersRequest)
 	mux.HandleFunc("/cloud/nodegroups", r.handleCloudNodeGroupsRequest)
 	mux.HandleFunc("/cloud/scale", r.handleCloudScaleNodeGroupRequest)
+
+	mux.HandleFunc("/telegram/config", r.handleTelegramBotConfigRequest)
 
 	webServerLog.Info("Starting web server", "port", 8999)
 	if err := http.ListenAndServe(":8999", mux); err != nil {
@@ -270,6 +273,9 @@ func (r *KubedeckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	} else {
 		r.yandexCloudProvider = yandexProvider
 	}
+
+	// Initialize Telegram bot settings
+	r.TelegramBotSettings = NewTelegramBotSettings()
 
 	// Start the web server in a goroutine.
 	go r.startWebServer()
