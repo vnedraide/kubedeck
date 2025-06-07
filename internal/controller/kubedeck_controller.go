@@ -165,8 +165,8 @@ func (r *KubedeckReconciler) startWebServer() {
 	mux.HandleFunc("/configmaps", r.handleConfigMapsRequest)         //ok+
 	mux.HandleFunc("/services", r.handleServicesRequest)             //ok+
 	mux.HandleFunc("/ingresses", r.handleIngressesRequest)           //ok+
-	mux.HandleFunc("/deployments", r.handleDeploymentsRequest)       //ok+ ________
-	mux.HandleFunc("/statefulsets", r.handleStatefulSetsRequest)     //ok+ ________ ++++++++
+	mux.HandleFunc("/deployments", r.handleDeploymentsRequest)       //ok+ ________+++++++++++++++
+	mux.HandleFunc("/statefulsets", r.handleStatefulSetsRequest)     //ok+ ________
 	mux.HandleFunc("/daemonsets", r.handleDaemonSetsRequest)         //ok+ ________
 	mux.HandleFunc("/replicasets", r.handleReplicaSetsRequest)       //ok+ ________
 	mux.HandleFunc("/namespaces", r.handleNamespacesRequest)         //ok+
@@ -273,6 +273,9 @@ func (r *KubedeckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// Start the web server in a goroutine.
 	go r.startWebServer()
+
+	// Start Telegram bot in a goroutine
+	go r.StartTelegramBot(context.Background())
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ctrlv1.Kubedeck{}). // Assuming Kubedeck is your primary CRD
