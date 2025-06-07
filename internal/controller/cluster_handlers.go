@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 type ClusterProvider interface {
@@ -36,6 +37,42 @@ type TimeWebProvider struct {
 	client  *http.Client
 }
 
+// TimeWeb API response structures
+type TimeWebClusterResponse struct {
+	ResponseID string `json:"response_id"`
+	Meta       struct {
+		Total int `json:"total"`
+	} `json:"meta"`
+	Clusters []struct {
+		ID            int    `json:"id"`
+		Name          string `json:"name"`
+		CreatedAt     string `json:"created_at"`
+		Status        string `json:"status"`
+		Description   string `json:"description"`
+		HA            bool   `json:"ha"`
+		K8sVersion    string `json:"k8s_version"`
+		AvatarLink    string `json:"avatar_link"`
+		NetworkDriver string `json:"network_driver"`
+		Ingress       bool   `json:"ingress"`
+		PresetID      int    `json:"preset_id"`
+		CPU           int    `json:"cpu"`
+		RAM           int    `json:"ram"`
+		Disk          int    `json:"disk"`
+	} `json:"clusters"`
+}
+
+type TimeWebNodeGroupResponse struct {
+	ResponseID string `json:"response_id"`
+	Meta       struct {
+		Total int `json:"total"`
+	} `json:"meta"`
+	Groups []struct {
+		ID        int    `json:"id"`
+		Name      string `json:"name"`
+		NodeCount int    `json:"node_count"`
+	} `json:"groups"`
+}
+
 func NewTimeWebProvider() *TimeWebProvider {
 	return &TimeWebProvider{
 		token:   "eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjFrYnhacFJNQGJSI0tSbE1xS1lqIn0.eyJ1c2VyIjoiY2E0ODMzNiIsInR5cGUiOiJhcGlfa2V5IiwiYXBpX2tleV9pZCI6Ijk4ZDg4MDk5LTRhODItNDFlZS1hZjg5LWVlNjQ0NzM0ZmUyOCIsImlhdCI6MTc0OTMwMjMwNiwiZXhwIjoxNzUxODk0MzA1fQ.lRfEVM82b-Rg0DvAOjczH5FAq9DDGSTpIZYqO559TpyR2ZwUp8ZmRPBObl-QJW6Z9i-EXTQVcJ9MF8CDe0r8hIn_-07GNtSqIceUFt2TGMVWqOxC63zU0q-HMOlDkoeOigd2nYMBGKw56NsRWwwm-rfmNm_j9CaSNe4n1DDnHrFVfRyveldAAp4Um3v6Mzdf5Fuh2Lq2tpspeH-AVjnP8H7pLtUZFlrkAhjW_hVodo7Zf0shLY44MQxAbKxC0gBt_joEUsvxVw0JdpGWYiAKQl6KRCADlSLBFUpqtuLYD_3ZRMUq22YIYyTgQgXort1FXEyIioKIYTzMtyRZmIPkeOor7ve6O7Un2EgLx06l0OLBVVKcEtfZbt4g9kt_o_YUBS8IrXUOgheC-asSX4LTU70oGqCYmrB0l1E2vprYqjYRKWdubMUl6nHSjMaUn4mdOvXxIfkazw-I-eIN6Jc1Ztw2Vv8bSqZpiy0jruk10M81LJBZneobA97qTxEuBQr4",
@@ -59,19 +96,23 @@ func (t *TimeWebProvider) ListClusters(ctx context.Context) ([]Cluster, error) {
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Clusters []Cluster `json:"clusters"`
-	}
+	var result TimeWebClusterResponse
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	for i := range result.Clusters {
-		result.Clusters[i].Provider = "timeweb"
+	clusters := make([]Cluster, len(result.Clusters))
+	for i, c := range result.Clusters {
+		clusters[i] = Cluster{
+			ID:       strconv.Itoa(c.ID),
+			Name:     c.Name,
+			Status:   c.Status,
+			Provider: "timeweb",
+		}
 	}
 
-	return result.Clusters, nil
+	return clusters, nil
 }
 
 func (t *TimeWebProvider) GetNodeGroups(ctx context.Context, clusterID string) ([]NodeGroup, error) {
@@ -89,15 +130,22 @@ func (t *TimeWebProvider) GetNodeGroups(ctx context.Context, clusterID string) (
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Groups []NodeGroup `json:"groups"`
-	}
+	var result TimeWebNodeGroupResponse
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	return result.Groups, nil
+	groups := make([]NodeGroup, len(result.Groups))
+	for i, g := range result.Groups {
+		groups[i] = NodeGroup{
+			ID:        strconv.Itoa(g.ID),
+			Name:      g.Name,
+			NodeCount: g.NodeCount,
+		}
+	}
+
+	return groups, nil
 }
 
 func (t *TimeWebProvider) ScaleNodeGroup(ctx context.Context, clusterID, groupID string, nodeCount int) error {
@@ -134,7 +182,7 @@ func (t *TimeWebProvider) ScaleNodeGroup(ctx context.Context, clusterID, groupID
 	return nil
 }
 
-// Yandex Cloud provider
+// Yandex Cloud provider остается без изменений
 type YandexCloudProvider struct {
 	token    string
 	folderID string
