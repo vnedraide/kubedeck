@@ -2,55 +2,29 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: manager-role
+  name: manager-role
 rules:
-    - apiGroups:
-          - ""
-      resources:
-          - configmaps
-      verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-    - apiGroups:
-          - apps
-      resources:
-          - deployments
-      verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-    - apiGroups:
-          - ctrl.nikcorp.ru
-      resources:
-          - kubedecks
-      verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-    - apiGroups:
-          - ctrl.nikcorp.ru
-      resources:
-          - kubedecks/status
-      verbs:
-          - get
-          - patch
-          - update
-    - apiGroups:
-          - ctrl.nikcorp.ru
-      resources:
-          - kubedecks/finalizers
-      verbs:
-          - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
