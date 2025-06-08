@@ -16,6 +16,7 @@ type TelegramBotConfig struct {
 	Token         string  `json:"token,omitempty"`         // Новый токен для бота (опционально)
 	CheckInterval int     `json:"checkInterval,omitempty"` // Новый интервал проверки в секундах (опционально)
 	ChatIDs       []int64 `json:"chatIDs,omitempty"`       // Новый список ID чатов для отправки уведомлений (опционально)
+	ResponseStyle string  `json:"responseStyle,omitempty"` // Стиль ответов бота (опционально)
 }
 
 const (
@@ -41,6 +42,7 @@ type TelegramBotSettings struct {
 	token         string
 	checkInterval int
 	chatIDs       []int64
+	responseStyle string
 	active        bool
 	stopChan      chan struct{}
 }
@@ -50,7 +52,8 @@ func NewTelegramBotSettings() *TelegramBotSettings {
 	return &TelegramBotSettings{
 		token:         defaultTelegramBotToken,
 		checkInterval: defaultCheckInterval,
-		chatIDs:       append([]int64{}, ChatIDs...), // Копируем значения по умолчанию
+		chatIDs:       append([]int64{}, ChatIDs...),                                         // Копируем значения по умолчанию
+		responseStyle: "Технический отчет о состоянии ресурсов Kubernetes с рекомендациями.", // Технический стиль по умолчанию
 		active:        false,
 		stopChan:      make(chan struct{}),
 	}
@@ -68,6 +71,13 @@ func (s *TelegramBotSettings) GetCheckInterval() int {
 	s.RLock()
 	defer s.RUnlock()
 	return s.checkInterval
+}
+
+// GetResponseStyle возвращает текущий стиль ответов бота
+func (s *TelegramBotSettings) GetResponseStyle() string {
+	s.RLock()
+	defer s.RUnlock()
+	return s.responseStyle
 }
 
 // GetChatIDs возвращает текущий список ID чатов
@@ -107,6 +117,12 @@ func (s *TelegramBotSettings) UpdateSettings(config *TelegramBotConfig) bool {
 			copy(s.chatIDs, config.ChatIDs)
 			changed = true
 		}
+	}
+
+	// Обновляем стиль ответов, если он указан и не пустой
+	if config.ResponseStyle != "" && config.ResponseStyle != s.responseStyle {
+		s.responseStyle = config.ResponseStyle
+		changed = true
 	}
 
 	// Если настройки изменились и бот активен, отправляем сигнал для остановки и перезапуска
@@ -328,7 +344,7 @@ func (r *KubedeckReconciler) checkResourcesAndSendAlerts(ctx context.Context, tr
 	}
 
 	// Формируем ОДНО сообщение со всеми алертами
-	message := formatSummaryAlertMessage(recommendation, totalProblematicPods)
+	message := formatTechnicalAlertMessage(recommendation, totalProblematicPods)
 
 	// Отправляем одно сообщение во все чаты
 	token := r.TelegramBotSettings.GetToken()
@@ -349,22 +365,23 @@ func (r *KubedeckReconciler) checkResourcesAndSendAlerts(ctx context.Context, tr
 	}
 }
 
-// formatSummaryAlertMessage форматирует краткое сообщение со всеми алертами
-func formatSummaryAlertMessage(recommendation *ResourceRecommendationResponse, totalPods int) string {
+// formatTechnicalAlertMessage форматирует техническое сообщение со всеми алертами и детальной информацией
+func formatTechnicalAlertMessage(recommendation *ResourceRecommendationResponse, totalPods int) string {
 	var sb strings.Builder
 
-	// Заголовок сообщения
-	sb.WriteString("*Kubernetes Resource Alert Summary*\n\n")
-	sb.WriteString(fmt.Sprintf("Обнаружено *%d* проблемных подов\n\n", totalPods))
+	// Технический заголовок сообщения
+	sb.WriteString("*Отчет о состоянии ресурсов Kubernetes*\n\n")
+	sb.WriteString(fmt.Sprintf("*Обнаружено:* %d проблемных подов требующих внимания\n", totalPods))
+	sb.WriteString(fmt.Sprintf("*Время сканирования:* %s\n\n", time.Now().Format("2006-01-02 15:04:05 MST")))
 
-	// Добавляем информацию по каждому неймспейсу
+	// Добавляем информацию по каждому неймспейсу с деталями
 	for namespace, pods := range recommendation.Namespaces {
 		if len(pods) == 0 {
 			continue
 		}
 
 		sb.WriteString(fmt.Sprintf("*Namespace:* `%s`\n", namespace))
-		sb.WriteString(fmt.Sprintf("Проблемных подов: %d\n", len(pods)))
+		sb.WriteString(fmt.Sprintf("*Количество проблемных подов:* %d\n", len(pods)))
 
 		// Добавляем статистику по статусам
 		criticalCount := 0
@@ -382,22 +399,59 @@ func formatSummaryAlertMessage(recommendation *ResourceRecommendationResponse, t
 			}
 		}
 
+		// Детальная статистика по уровням критичности
 		if criticalCount > 0 {
-			sb.WriteString(fmt.Sprintf("🔴 Критических: %d\n", criticalCount))
+			sb.WriteString(fmt.Sprintf("*Критические (требуют немедленного вмешательства):* %d\n", criticalCount))
 		}
 		if warningCount > 0 {
-			sb.WriteString(fmt.Sprintf("⚠️ Предупреждений: %d\n", warningCount))
+			sb.WriteString(fmt.Sprintf("*Предупреждения (требуют внимания):* %d\n", warningCount))
 		}
 		if infoCount > 0 {
-			sb.WriteString(fmt.Sprintf("ℹ️ Информационных: %d\n", infoCount))
+			sb.WriteString(fmt.Sprintf("*Информационные сообщения:* %d\n", infoCount))
+		}
+
+		// Добавляем список самых критичных подов (до 5 штук)
+		var criticalPods []string
+		var warningPods []string
+
+		for _, pod := range pods {
+			if pod.Status == "critical" && len(criticalPods) < 5 {
+				criticalPods = append(criticalPods, pod.Name)
+			} else if pod.Status == "warning" && len(warningPods) < 5 && len(criticalPods) == 0 {
+				warningPods = append(warningPods, pod.Name)
+			}
+		}
+
+		if len(criticalPods) > 0 {
+			sb.WriteString("\n*Критические поды:*\n")
+			for _, name := range criticalPods {
+				sb.WriteString(fmt.Sprintf("- `%s`\n", name))
+			}
+		} else if len(warningPods) > 0 {
+			sb.WriteString("\n*Поды с предупреждениями:*\n")
+			for _, name := range warningPods {
+				sb.WriteString(fmt.Sprintf("- `%s`\n", name))
+			}
 		}
 
 		sb.WriteString("\n")
 	}
 
-	// Добавляем общую рекомендацию
-	sb.WriteString("*Общая рекомендация:*\n")
+	// Добавляем технические рекомендации
+	sb.WriteString("*Технический анализ и рекомендации:*\n")
 	sb.WriteString(recommendation.Message)
+
+	// Добавляем информацию о дальнейших действиях
+	sb.WriteString("\n\n*Рекомендуемые действия:*\n")
+	sb.WriteString("1. Проверьте настройки ресурсов подов (CPU/Memory limits/requests)\n")
+	sb.WriteString("2. Оцените необходимость масштабирования приложений\n")
+	sb.WriteString("3. Проанализируйте метрики использования ресурсов\n")
+	sb.WriteString("4. При необходимости, выполните реконфигурацию подов\n")
+
+	// Добавляем информацию о метриках и технических деталях
+	sb.WriteString("\n*Дополнительная информация:*\n")
+	sb.WriteString("Для получения детальной информации используйте инструменты мониторинга\n")
+	sb.WriteString("и диагностики Kubernetes (kubectl, prometheus, grafana).\n")
 
 	return sb.String()
 }
@@ -414,8 +468,14 @@ func sendTelegramSummaryMessage(chatID int64, text string, token string) error {
 			InlineKeyboard: [][]TelegramInlineButton{
 				{
 					{
-						Text: "Открыть в Kubedeck",
+						Text: "Открыть панель управления",
 						URL:  WebUIBaseURL,
+					},
+				},
+				{
+					{
+						Text: "Документация по устранению проблем",
+						URL:  "https://kubernetes.io/docs/tasks/debug/",
 					},
 				},
 			},

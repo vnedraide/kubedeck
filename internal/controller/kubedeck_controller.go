@@ -190,7 +190,7 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// Deployments CRUD
 	mux.HandleFunc("/deployments/create", r.HandleCreateDeployment) //ok+
-	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment) //ok+=============
+	mux.HandleFunc("/deployments/update", r.HandleUpdateDeployment) //ok+
 	mux.HandleFunc("/deployments/delete", r.HandleDeleteDeployment)
 
 	// Новые обработчики для метрик
@@ -204,12 +204,12 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// DaemonSets CRUD
 	mux.HandleFunc("/daemonsets/create", r.HandleCreateDaemonSet)
-	mux.HandleFunc("/daemonsets/update", r.HandleUpdateDaemonSet) //=========================
+	mux.HandleFunc("/daemonsets/update", r.HandleUpdateDaemonSet) //ok+
 	mux.HandleFunc("/daemonsets/delete", r.HandleDeleteDaemonSet)
 
 	// StatefulSet CRUD
 	mux.HandleFunc("/statefulsets/create", r.HandleCreateStatefulSet)
-	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet) //===================
+	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet) //ok хз он не делает replicas их readi
 	mux.HandleFunc("/statefulsets/delete", r.HandleDeleteStatefulSet)
 
 	// PVC CRUD
@@ -238,7 +238,7 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// ReplicaSet CRUD
 	mux.HandleFunc("/replicasets/create", r.HandleCreateReplicaSet)
-	mux.HandleFunc("/replicasets/update", r.HandleUpdateReplicaSet) //===================
+	mux.HandleFunc("/replicasets/update", r.HandleUpdateReplicaSet) //ok хз он не делает replicas их readi
 	mux.HandleFunc("/replicasets/delete", r.HandleDeleteReplicaSet)
 
 	// Namespaces CRUD (пример для кластерного)

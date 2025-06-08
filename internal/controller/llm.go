@@ -217,7 +217,7 @@ func (r *KubedeckReconciler) getLLMResourceRecommendations(ctx context.Context, 
 	log := webServerLog.WithName("getLLMResourceRecommendations")
 
 	// Create the prompt for the LLM
-	prompt := createLLMPrompt(podResourceData)
+	prompt := r.createLLMPrompt(podResourceData)
 
 	// Create the LLM request
 	llmReq := LLMRequest{
@@ -302,26 +302,35 @@ func (r *KubedeckReconciler) getLLMResourceRecommendations(ctx context.Context, 
 }
 
 // createLLMPrompt creates the prompt for the LLM based on pod resource data
-func createLLMPrompt(podResourceData map[string][]PodResourceInfo) string {
+func (r *KubedeckReconciler) createLLMPrompt(podResourceData map[string][]PodResourceInfo) string {
 	sb := strings.Builder{}
 
-	sb.WriteString("Ой ты гой еси, добрый молодец! Зри на потребу подов Kubernetes и рассуди мудро о ресурсах их. ")
-	sb.WriteString("Укажи ТОЛЬКО те поды, что имеют ЗНАЧИТЕЛЬНЫЕ отклонения в потреблении ресурсов. ")
-	sb.WriteString("Ответствуй ТОЛЬКО в таком JSON формате:\n\n")
+	// Получаем текущий стиль ответов
+	responseStyle := r.TelegramBotSettings.GetResponseStyle()
+
+	// Если стиль не задан, используем стиль по умолчанию
+	if responseStyle == "" {
+		responseStyle = "Проанализируйте ресурсы подов Kubernetes и предоставьте технически обоснованные рекомендации."
+	}
+
+	sb.WriteString(responseStyle + " ")
+	sb.WriteString("Укажите ТОЛЬКО те поды, которые имеют ЗНАЧИТЕЛЬНЫЕ отклонения в потреблении ресурсов. ")
+	sb.WriteString("Ответ ТОЛЬКО в следующем JSON формате:\n\n")
+
 	sb.WriteString("```json\n")
 	sb.WriteString("{\n")
-	sb.WriteString("  \"message\": \"Суть твоего анализа\",\n")
+	sb.WriteString("  \"message\": \"Суть анализа\",\n")
 	sb.WriteString("  \"namespaces\": {\n")
 	sb.WriteString("    \"имя-пространства\": [\n")
 	sb.WriteString("      {\n")
 	sb.WriteString("        \"name\": \"имя-пода\",\n")
 	sb.WriteString("        \"resourceName\": \"имя-ресурса\",\n")
 	sb.WriteString("        \"resourceType\": \"тип-ресурса\",\n")
-	sb.WriteString("        \"cpuRequest\": 300,  // CPU request в милликорах или -1 коли не нужно менять\n")
-	sb.WriteString("        \"memoryRequest\": 64,  // Memory request в Mi или -1 коли не нужно менять\n")
-	sb.WriteString("        \"cpuLimit\": 500,  // CPU limit в милликорах или -1 коли не нужно менять\n")
-	sb.WriteString("        \"memoryLimit\": 128,  // Memory limit в Mi или -1 коли не нужно менять\n")
-	sb.WriteString("        \"replicas\": 3,  // Количество реплик или -1 коли не нужно менять\n")
+	sb.WriteString("        \"cpuRequest\": 300,  // CPU request в милликорах или -1 если не нужно менять\n")
+	sb.WriteString("        \"memoryRequest\": 64,  // Memory request в Mi или -1 если не нужно менять\n")
+	sb.WriteString("        \"cpuLimit\": 500,  // CPU limit в милликорах или -1 если не нужно менять\n")
+	sb.WriteString("        \"memoryLimit\": 128,  // Memory limit в Mi или -1 если не нужно менять\n")
+	sb.WriteString("        \"replicas\": 3,  // Количество реплик или -1 если не нужно менять\n")
 	sb.WriteString("        \"status\": \"warning\" или \"critical\"\n")
 	sb.WriteString("      }\n")
 	sb.WriteString("    ]\n")
@@ -329,22 +338,22 @@ func createLLMPrompt(podResourceData map[string][]PodResourceInfo) string {
 	sb.WriteString("}\n")
 	sb.WriteString("```\n\n")
 
-	sb.WriteString("Правила суждения таковы:\n")
-	sb.WriteString("1. CPU <25% - снизить надобно (warning), но токмо ежели разница значительна\n")
-	sb.WriteString("2. CPU >85% - повысить надобно (critical)\n")
-	sb.WriteString("3. Память <30% - снизить надобно (warning), но токмо ежели разница значительна\n")
-	sb.WriteString("4. Память >80% - повысить надобно (critical)\n")
-	sb.WriteString("5. Коли не нужно менять - ставь -1\n")
-	sb.WriteString("6. Токмо СУЩЕСТВЕННО проблемные поды указывай, мелкие отклонения не учитывай\n")
-	sb.WriteString("7. Для каждого пода указывай как requests так и limits\n")
-	sb.WriteString("8. В поле resourceType указывай тип ресурса (Deployment, StatefulSet, ReplicaSet, ...)\n")
-	sb.WriteString("9. В поле replicas указывай рекомендуемое количество реплик или -1 если менять не надо\n\n")
+	sb.WriteString("Критерии для анализа:\n")
+	sb.WriteString("1. CPU <25% - рекомендуется снизить (warning), только при значительной разнице\n")
+	sb.WriteString("2. CPU >85% - необходимо повысить (critical)\n")
+	sb.WriteString("3. Память <30% - рекомендуется снизить (warning), только при значительной разнице\n")
+	sb.WriteString("4. Память >80% - необходимо повысить (critical)\n")
+	sb.WriteString("5. Если не требуется изменений - установите значение -1\n")
+	sb.WriteString("6. Указывайте только поды с СУЩЕСТВЕННЫМИ проблемами, игнорируйте незначительные отклонения\n")
+	sb.WriteString("7. Для каждого пода указывайте как requests, так и limits\n")
+	sb.WriteString("8. В поле resourceType указывайте тип ресурса (Deployment, StatefulSet, ReplicaSet, ...)\n")
+	sb.WriteString("9. В поле replicas указывайте рекомендуемое количество реплик или -1, если изменение не требуется\n\n")
 
-	sb.WriteString("Вот данные о подах:\n\n")
+	sb.WriteString("Данные о подах:\n\n")
 
 	// Add pod resource data to the prompt
 	for namespace, pods := range podResourceData {
-		sb.WriteString(fmt.Sprintf("Пространство: %s\n", namespace))
+		sb.WriteString(fmt.Sprintf("Пространство имен: %s\n", namespace))
 		for _, pod := range pods {
 			sb.WriteString(fmt.Sprintf("- Под: %s\n", pod.Name))
 			if pod.ResourceName != "" {
@@ -357,23 +366,24 @@ func createLLMPrompt(podResourceData map[string][]PodResourceInfo) string {
 			if pod.CPUUsage != "" {
 				sb.WriteString(fmt.Sprintf("Потребление: %s (%.1f%%)\n", pod.CPUUsage, pod.CPUPercentage))
 			} else {
-				sb.WriteString("Потребление: неведомо\n")
+				sb.WriteString("Потребление: неизвестно\n")
 			}
 
 			sb.WriteString(fmt.Sprintf("  Memory Request: %dMi, Memory Limit: %dMi, ", pod.MemoryRequest, pod.MemoryLimit))
 			if pod.MemoryUsage != "" {
 				sb.WriteString(fmt.Sprintf("Потребление: %s (%.1f%%)\n", pod.MemoryUsage, pod.MemPercentage))
 			} else {
-				sb.WriteString("Потребление: неведомо\n")
+				sb.WriteString("Потребление: неизвестно\n")
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("Указывай resourceName и resourceType для каждого пода дабы ресайзинг ресурса возможен был.\n\n")
-	sb.WriteString("Для каждого пода нужно возвращать как requests так и limits, то есть как минимальные необходимые ресурсы, так и максимальные.\n\n")
-	sb.WriteString("Возвращай рекомендуемое количество реплик только если ты уверен, что нужно изменить.\n\n")
-	sb.WriteString("Верни ТОКМО JSON без иных пояснений. Ответ должен быть на русском языке в стиле древних русов.")
+	sb.WriteString("Для корректного ресайзинга ресурсов обязательно указывайте resourceName и resourceType для каждого пода.\n\n")
+	sb.WriteString("Для каждого пода необходимо возвращать как requests, так и limits, то есть как минимальные необходимые ресурсы, так и максимальные.\n\n")
+	sb.WriteString("Рекомендуемое количество реплик возвращайте только при наличии веских причин для изменения.\n\n")
+	sb.WriteString("В поле \"message\" укажите для каждого пода точные процентные значения текущего использования ресурсов (CPU и Memory) и конкретные рекомендуемые значения ресурсов в числовом виде. Например: \"Под nginx-123 использует 95% CPU (950m из 1000m), рекомендуется увеличить до 1500m\".\n\n")
+	sb.WriteString("Верните только JSON без дополнительных пояснений. Ответ должен быть на русском языке в профессиональном техническом стиле.")
 
 	return sb.String()
 }
