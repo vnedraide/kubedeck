@@ -8,23 +8,27 @@ metadata:
   name: kubedeck-manager-role
 rules:
 - apiGroups:
-  - '*'
+  - ""
   resources:
-  - '*'
+  - configmaps
   verbs:
-  - '*'
-- apiGroups:
-  - ctrl.nikcorp.ru
-  resources:
-  - kubedecks/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ctrl.nikcorp.ru
-  resources:
-  - kubedecks/status
-  verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 {{- end -}}

@@ -175,6 +175,9 @@ func (r *KubedeckReconciler) startWebServer() {
 	mux.HandleFunc("/storageclasses", r.handleStorageClassesRequest) //ok+
 	mux.HandleFunc("/logs", r.handlePodLogsRequest)                  //ok+
 
+	// Update для фронта
+	mux.HandleFunc("/updatefromfront", r.HandleUpdateForFront)
+
 	// Йобаный в рот, статистика блять cyka
 	mux.HandleFunc("/analyze/resources", r.handleResourceAnalysisRequest)
 
@@ -209,7 +212,7 @@ func (r *KubedeckReconciler) startWebServer() {
 
 	// StatefulSet CRUD
 	mux.HandleFunc("/statefulsets/create", r.HandleCreateStatefulSet)
-	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet) //ok хз он не делает replicas их readi
+	mux.HandleFunc("/statefulsets/update", r.HandleUpdateStatefulSet) //ok+
 	mux.HandleFunc("/statefulsets/delete", r.HandleDeleteStatefulSet)
 
 	// PVC CRUD

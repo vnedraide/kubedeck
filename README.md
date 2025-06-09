@@ -70,10 +70,11 @@ make undeploy
 make undeploy
 make uninstall
 make manifests
-make docker-build docker-push IMG=registry.orion.nikcorp.ru/kubedeck:n
-make deploy IMG=registry.orion.nikcorp.ru/kubedeck:n
+make docker-build docker-push IMG=registry.orion.nikcorp.ru/kubedeck:0.1.55
+make deploy IMG=registry.orion.nikcorp.ru/kubedeck:0.1.55
 
 ## Project Distribution
+
 
 Following the options to release and provide this solution to the users.
 
@@ -81,7 +82,25 @@ Following the options to release and provide this solution to the users.
 
 1. Build the installer for the image built and published in the registry:
 
-```sh
+```shkubectl exec -it kube-prometheus-stack-grafana-58d578dbcb-57mrq -n kube-prometheus-stack -- curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "namespace": "default",
+    "resource": {
+      "resourceType": "Deployment",
+      "name": "my-deployment",
+      "cpuRequest": 100,
+      "memoryRequest": 64,
+      "cpuLimit": 500,
+      "memoryLimit": 64,
+      "replicas": 2
+    }
+  }' \
+  "http://kubedeck-controller-manager-metrics-service.kubedeck-system.svc.cluster.local:8999/updatefromfront"
+
+
+
+
 make build-installer IMG=<some-registry>/kubedeck:tag
 ```
 

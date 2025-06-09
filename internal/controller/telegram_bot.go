@@ -28,7 +28,7 @@ const (
 	AlertDeduplicationWindow = 4
 
 	// WebUIBaseURL - базовый URL веб-интерфейса
-	WebUIBaseURL = "https://yandex.ru/images/search?from=tabbar&img_url=https%3A%2F%2Ficdn.lenta.ru%2Fimages%2F2025%2F05%2F13%2F18%2F20250513184839314%2Foriginal_88202f632e59f19d8938a1a03e58c8c4.jpg&lr=213&pos=0&rpt=simage&text=окак"
+	WebUIBaseURL = "https://ui.orion.nikcorp.ru/auth"
 )
 
 // ChatIDs - список ID чатов для отправки уведомлений
@@ -437,22 +437,6 @@ func formatTechnicalAlertMessage(recommendation *ResourceRecommendationResponse,
 		sb.WriteString("\n")
 	}
 
-	// Добавляем технические рекомендации
-	sb.WriteString("*Технический анализ и рекомендации:*\n")
-	sb.WriteString(recommendation.Message)
-
-	// Добавляем информацию о дальнейших действиях
-	sb.WriteString("\n\n*Рекомендуемые действия:*\n")
-	sb.WriteString("1. Проверьте настройки ресурсов подов (CPU/Memory limits/requests)\n")
-	sb.WriteString("2. Оцените необходимость масштабирования приложений\n")
-	sb.WriteString("3. Проанализируйте метрики использования ресурсов\n")
-	sb.WriteString("4. При необходимости, выполните реконфигурацию подов\n")
-
-	// Добавляем информацию о метриках и технических деталях
-	sb.WriteString("\n*Дополнительная информация:*\n")
-	sb.WriteString("Для получения детальной информации используйте инструменты мониторинга\n")
-	sb.WriteString("и диагностики Kubernetes (kubectl, prometheus, grafana).\n")
-
 	return sb.String()
 }
 
@@ -468,14 +452,8 @@ func sendTelegramSummaryMessage(chatID int64, text string, token string) error {
 			InlineKeyboard: [][]TelegramInlineButton{
 				{
 					{
-						Text: "Открыть панель управления",
+						Text: "Отркыть kubedeck",
 						URL:  WebUIBaseURL,
-					},
-				},
-				{
-					{
-						Text: "Документация по устранению проблем",
-						URL:  "https://kubernetes.io/docs/tasks/debug/",
 					},
 				},
 			},

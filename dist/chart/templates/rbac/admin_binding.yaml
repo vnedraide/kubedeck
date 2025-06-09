@@ -4,16 +4,16 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
+    name: kubedeck-admin
     labels:
         app.kubernetes.io/name: kubedeck
         app.kubernetes.io/managed-by: kustomize
-    name: kubedeck-manager-rolebinding
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
     name: cluster-admin
 subjects:
     - kind: ServiceAccount
-      name: {{ .Values.controllerManager.serviceAccountName }}
+      name: kubedeck-controller-manager
       namespace: {{ .Release.Namespace }}
 {{- end -}}

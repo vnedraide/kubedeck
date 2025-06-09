@@ -1,10 +1,11 @@
 # [MANAGER]: Manager Deployment Configurations
+baseHostName: ui.orion.nikcorp.ru
 controllerManager:
   replicas: 1
   container:
     image:
-      repository: controller
-      tag: latest
+      repository: registry.orion.nikcorp.ru/kubedeck
+      tag: 0.1.30
     args:
       - "--leader-elect"
       - "--metrics-bind-address=:8443"
@@ -40,6 +41,13 @@ controllerManager:
   terminationGracePeriodSeconds: 10
   serviceAccountName: kubedeck-controller-manager
 
+# [MANAGER]: UI Deployment Configurations
+kubedeckui:
+  replicas: 1
+  container:
+    image:
+      repository: registry.orion.nikcorp.ru/kubedeckui
+      tag: 0.0.5
 # [RBAC]: To enable RBAC (Permissions) configurations
 rbac:
   enable: true

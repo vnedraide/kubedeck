@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +16,115 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	// "sigs.k8s.io/controller-runtime/pkg/client" // Уже должно быть в APIHandlers
 )
+
+func (h *KubedeckReconciler) HandleUpdateForFront(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Namespace string `json:"namespace"`
+		Resource  struct {
+			ResourceType  string `json:"resourceType"`
+			Name          string `json:"name"`
+			CPURequest    int    `json:"cpuRequest"`
+			MemoryRequest int    `json:"memoryRequest"`
+			CPULimit      int    `json:"cpuLimit"`
+			MemoryLimit   int    `json:"memoryLimit"`
+			Replicas      int32  `json:"replicas"`
+		} `json:"resource"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.writeErrorResponse(w, http.StatusBadRequest, "Invalid JSON", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctx := r.Context()
+
+	// Если ReplicaSet — обрезаем имя
+	if payload.Resource.ResourceType == "ReplicaSet" {
+		if i := strings.LastIndex(payload.Resource.Name, "-"); i != -1 {
+			payload.Resource.Name = payload.Resource.Name[:i]
+		}
+	}
+
+	// Обновляет только те поля container.Resources, которые явно указаны (не -1)
+	applyResources := func(container *corev1.Container) {
+		if container.Resources.Requests == nil {
+			container.Resources.Requests = corev1.ResourceList{}
+		}
+		if container.Resources.Limits == nil {
+			container.Resources.Limits = corev1.ResourceList{}
+		}
+
+		if payload.Resource.CPURequest >= 0 {
+			container.Resources.Requests[corev1.ResourceCPU] =
+				resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPURequest))
+		}
+		if payload.Resource.MemoryRequest >= 0 {
+			container.Resources.Requests[corev1.ResourceMemory] =
+				resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryRequest))
+		}
+		if payload.Resource.CPULimit >= 0 {
+			container.Resources.Limits[corev1.ResourceCPU] =
+				resource.MustParse(fmt.Sprintf("%dm", payload.Resource.CPULimit))
+		}
+		if payload.Resource.MemoryLimit >= 0 {
+			container.Resources.Limits[corev1.ResourceMemory] =
+				resource.MustParse(fmt.Sprintf("%dMi", payload.Resource.MemoryLimit))
+		}
+	}
+
+	// Универсальная обработка для всех 4 типов
+	updateWorkload := func(obj client.Object, containers []corev1.Container, replicas *int32) {
+		if len(containers) > 0 {
+			applyResources(&containers[0])
+		}
+		if payload.Resource.Replicas >= 0 && replicas != nil {
+			*replicas = payload.Resource.Replicas
+		}
+		if err := h.Client.Update(ctx, obj); err != nil {
+			h.writeErrorResponse(w, http.StatusInternalServerError, "Failed to update "+payload.Resource.ResourceType, err)
+			return
+		}
+		h.writeJSONResponse(w, http.StatusOK, obj)
+	}
+
+	switch payload.Resource.ResourceType {
+	case "Deployment":
+		var d appsv1.Deployment
+		if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &d); err != nil {
+			h.writeErrorResponse(w, http.StatusNotFound, "Deployment not found", err)
+			return
+		}
+		updateWorkload(&d, d.Spec.Template.Spec.Containers, d.Spec.Replicas)
+
+	case "ReplicaSet":
+		var d appsv1.Deployment
+		if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &d); err != nil {
+			h.writeErrorResponse(w, http.StatusNotFound, "Deployment not found for ReplicaSet", err)
+			return
+		}
+		updateWorkload(&d, d.Spec.Template.Spec.Containers, d.Spec.Replicas)
+
+	case "StatefulSet":
+		var s appsv1.StatefulSet
+		if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &s); err != nil {
+			h.writeErrorResponse(w, http.StatusNotFound, "StatefulSet not found", err)
+			return
+		}
+		updateWorkload(&s, s.Spec.Template.Spec.Containers, s.Spec.Replicas)
+
+	case "DaemonSet":
+		var d appsv1.DaemonSet
+		if err := h.Client.Get(ctx, client.ObjectKey{Namespace: payload.Namespace, Name: payload.Resource.Name}, &d); err != nil {
+			h.writeErrorResponse(w, http.StatusNotFound, "DaemonSet not found", err)
+			return
+		}
+		updateWorkload(&d, d.Spec.Template.Spec.Containers, nil)
+
+	default:
+		h.writeErrorResponse(w, http.StatusBadRequest, "Unsupported resourceType", fmt.Errorf("got: %s", payload.Resource.ResourceType))
+	}
+}
 
 // Напоминание: структура APIHandlers, NewAPIHandlers, writeJSONResponse, writeErrorResponse
 // и webServerLog предполагаются определенными в другом файле этого пакета (например, handlers.go).
@@ -259,6 +369,7 @@ func (h *KubedeckReconciler) HandleUpdateDeployment(w http.ResponseWriter, r *ht
 	var payload struct {
 		Namespace string `json:"namespace"`
 		Resource  struct {
+			ResourceType  string `json:"resourceType"`
 			Name          string `json:"name"`
 			CPURequest    int    `json:"cpuRequest"`
 			MemoryRequest int    `json:"memoryRequest"`
@@ -273,6 +384,14 @@ func (h *KubedeckReconciler) HandleUpdateDeployment(w http.ResponseWriter, r *ht
 		return
 	}
 	defer r.Body.Close()
+
+	// если resourceType == ReplicaSet, обрезаем name
+	if payload.Resource.ResourceType == "ReplicaSet" {
+		parts := strings.Split(payload.Resource.Name, "-")
+		if len(parts) > 1 {
+			payload.Resource.Name = strings.Join(parts[:len(parts)-1], "-")
+		}
+	}
 
 	ctx := r.Context()
 	var deployment appsv1.Deployment
