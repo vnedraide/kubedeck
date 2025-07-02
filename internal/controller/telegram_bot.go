@@ -21,14 +21,14 @@ type TelegramBotConfig struct {
 
 const (
 	// Значения по умолчанию
-	defaultTelegramBotToken = "7803977827:AAE8aSbXaiwDl2_nHVZBSTyws_VVgsGwrVE"
+	defaultTelegramBotToken = "token"
 	defaultCheckInterval    = 2700 // 45 минут в секундах
 
 	// AlertDeduplicationWindow - окно дедупликации алертов в часах
 	AlertDeduplicationWindow = 4
 
 	// WebUIBaseURL - базовый URL веб-интерфейса
-	WebUIBaseURL = "https://ui.orion.nikcorp.ru/auth"
+	WebUIBaseURL = "https://HOST/auth"
 )
 
 // ChatIDs - список ID чатов для отправки уведомлений

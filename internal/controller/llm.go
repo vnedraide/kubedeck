@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	LLMApiURL = "https://llm.glowbyteconsulting.com/api/chat/completions"
-	LLMModel  = "anthropic.claude-sonnet-4-20250514"
+	LLMApiURL = "https://HOST/api/chat/completions"
+	LLMModel  = "claude-sonnet-4-20250514"
 )
 
 // PodResourceInfo represents resource information for a pod
@@ -247,7 +247,7 @@ func (r *KubedeckReconciler) getLLMResourceRecommendations(ctx context.Context, 
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer sk-2511d8de29004787aff3b7f83bab43db")
+	httpReq.Header.Set("Authorization", "Bearer token")
 
 	// Send the request
 	log.Info("Sending request to LLM API", "url", LLMApiURL)
